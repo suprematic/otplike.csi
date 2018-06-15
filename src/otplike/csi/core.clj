@@ -1,5 +1,6 @@
 (ns otplike.csi.core
   (:require
+   [clojure.core.match :as match :refer [match]]
    [otplike.process :as p]
    [otplike.trace :as t]
    [taoensso.timbre :as log]
@@ -32,6 +33,23 @@
     (transit-reader
       (java.io.ByteArrayInputStream. (.getBytes string java.nio.charset.StandardCharsets/UTF_8)))))
 
+(defn- apply-kw [kw args]
+  (let [ns (or (namespace kw) "otplike.core")]
+    (if-let [fn (some->> (name kw) (symbol ns) resolve deref)]
+      (if (fn? fn)
+        [::ok (apply fn args)]
+        [::error :badfn kw])
+      [::error :badfn kw])))
+
+(defn- qstr [maybe-string]
+  (if (string? maybe-string)
+    (str \" maybe-string \")
+    maybe-string))
+
+(defn- format-call [kw-fn args]
+  (format "(%s %s)"
+    (-> kw-fn str (.substring 1))
+    (->> args (map qstr) (interpose " ") (apply str))))
 
 (p/proc-defn- wsproc [channel]
   (let [watchdog
@@ -39,9 +57,9 @@
           (p/proc-fn []
             (p/flag :trap-exit true)
             (p/receive!
-              _
+              message
               (when (http-kit/open? channel)
-                (log/debugf "wsproc-watchdog %s message received, closing WebSocket" (p/self))
+                (log/debugf "wsproc-watchdog %s message received, closing WebSocket, message=%s" (p/self) message)
                 (http-kit/close channel)))))]
     
     (log/debugf "wsproc %s :: watchdog process spawned, pid=%s" (p/self) watchdog)
@@ -55,11 +73,15 @@
           (log/debugf "wsproc %s :: 'terminate' message received" (p/self))
           nil)
 
-        [::send pid payload]
+        [::cast kw-fn args]
         (do
-          (log/debugf "wsproc %s :: 'send' message received for pid=%s, payload=%s" (p/self) pid payload)
-          (p/! pid payload)
-          (recur))
+          (log/debugf "wsproc %s :: cast %s" (p/self) (format-call kw-fn args))
+          (match (apply-kw kw-fn args)
+            [::error r]
+            (p/exit r)
+
+            [::ok _]
+            (recur))) 
         
         message
         (do
