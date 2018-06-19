@@ -33,23 +33,23 @@
     (transit-reader
       (java.io.ByteArrayInputStream. (.getBytes string java.nio.charset.StandardCharsets/UTF_8)))))
 
-(defn- apply-kw [kw args]
-  (let [ns (or (namespace kw) "otplike.core")]
-    (if-let [fn (some->> (name kw) (symbol ns) resolve deref)]
-      (if (fn? fn)
-        [::ok (apply fn args)]
-        [::error :badfn kw])
-      [::error :badfn kw])))
-
 (defn- qstr [maybe-string]
   (if (string? maybe-string)
     (str \" maybe-string \")
     maybe-string))
 
-(defn- format-call [kw-fn args]
-  (format "(%s %s)"
-    (-> kw-fn str (.substring 1))
-    (->> args (map qstr) (interpose " ") (apply str))))
+(defn- format-call [func args]
+  (letfn [(qstr [s]
+            (if (string? s)
+              (str \" s \") s))]
+    (format "(%s %s)" func (->> args (map qstr) (interpose " ") (apply str)))))
+
+(defn- apply-sym [func args]
+  (if-let [fn (some->> func resolve deref)]
+    (if (fn? fn)
+      [::ok (apply fn args)]
+      [::error :badfn func])
+    [::error :badfn func]))
 
 (p/proc-defn- wsproc [channel]
   (let [watchdog
@@ -73,16 +73,16 @@
           (log/debugf "wsproc %s :: 'terminate' message received" (p/self))
           nil)
 
-        [::cast kw-fn args]
+        [::cast func args]
         (do
-          (log/debugf "wsproc %s :: cast %s" (p/self) (format-call kw-fn args))
-          (match (apply-kw kw-fn args)
+          (log/debugf "wsproc %s :: cast %s" (p/self) (format-call func args))
+          (match (apply-sym func args)
             [::error r]
             (p/exit r)
 
             [::ok _]
-            (recur))) 
-        
+            (recur)))
+
         message
         (do
           (transit-send channel [::message message])
