@@ -57,11 +57,12 @@
           (p/proc-fn []
             (p/flag :trap-exit true)
             (p/receive!
-              message
+              [:EXIT _ reason]
               (when (http-kit/open? channel)
-                (log/debugf "wsproc-watchdog %s message received, closing WebSocket, message=%s" (p/self) message)
+                (log/debugf "wsproc-watchdog %s message received, closing WebSocket, reason=%s" (p/self) reason)
+                (transit-send channel [::exit reason])
                 (http-kit/close channel)))))]
-    
+
     (log/debugf "wsproc %s :: watchdog process spawned, pid=%s" (p/self) watchdog)
 
     (transit-send channel [::self (p/self)])
