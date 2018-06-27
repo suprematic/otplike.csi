@@ -47,9 +47,19 @@
 (defn- apply-sym [func args]
   (if-let [fn (some->> func resolve deref)]
     (if (fn? fn)
-      [::ok (apply fn args)]
-      [::error :badfn func])
-    [::error :badfn func]))
+      (apply fn args)
+      [::error [:badfn func args]])
+    [::error [:badfn func args]]))
+
+(defn crash-fn []
+  (throw (Exception. "exception message")))
+
+(defn sleep-fn [delay]
+  (Thread/sleep delay)
+  :ok)
+
+(defn- convert-nil [value]
+  (or value ::nil))
 
 (p/proc-defn- wsproc [channel]
   (let [watchdog
@@ -81,12 +91,23 @@
             [::error r]
             (p/exit r)
 
-            [::ok _]
+            _
             (recur)))
+
+        [::call func args corr]
+        (do
+          (log/debugf "wsproc %s :: call [%s] %s" (p/self) corr (format-call func args))
+          (match (-> (apply-sym func args) p/async?-value!)
+            [::error r]
+            (p/exit r)
+
+            result
+            (transit-send channel [::return (convert-nil result) corr]))
+          (recur))
 
         message
         (do
-          (transit-send channel [::message message])
+          (transit-send channel [::message (convert-nil message)])
           (recur))))))
 
 
