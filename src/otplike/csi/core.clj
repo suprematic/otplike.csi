@@ -5,23 +5,32 @@
    [otplike.trace :as t]
    [taoensso.timbre :as log]
    [cognitect.transit :as transit]
-   [org.httpkit.server :as http-kit]))
+   [org.httpkit.server :as http-kit])
+  (:import [otplike.process Pid TRef]))
+
+(def ^:private transit-write-handlers
+  {Pid
+   (transit/write-handler
+    "pid" (fn [^Pid pid] {:id (.id pid)}))
+   TRef
+   (transit/write-handler
+    "otp-ref" (fn [^TRef tref] {:id (.id tref)}))})
+
+(def ^:private transit-read-handlers
+  {"pid"
+   (transit/read-handler
+    (fn [{:keys [id]}]
+      (Pid. id)))
+   "otp-ref"
+   (transit/read-handler
+    (fn [{:keys [id]}]
+      (TRef. id)))})
 
 (defn- transit-writer [stream]
-  (transit/writer stream :json
-    {:handlers
-     {otplike.process.Pid
-      (transit/write-handler "pid"
-        (fn [pid]
-          (into {} pid)))}}))
+  (transit/writer stream :json {:handlers transit-write-handlers}))
 
 (defn- transit-reader [stream]
-  (transit/reader stream :json
-    {:handlers
-     {"pid"
-      (transit/read-handler
-        (fn [{:keys [id pname]}]
-          (otplike.process/->Pid id pname)))}}))
+  (transit/reader stream :json {:handlers transit-read-handlers}))
 
 (defn- transit-send [channel form]
   (let [os (java.io.ByteArrayOutputStream. 4096)]
@@ -30,8 +39,9 @@
 
 (defn- transit-read [string]
   (transit/read
-    (transit-reader
-      (java.io.ByteArrayInputStream. (.getBytes string java.nio.charset.StandardCharsets/UTF_8)))))
+   (transit-reader
+    (java.io.ByteArrayInputStream.
+     (.getBytes string java.nio.charset.StandardCharsets/UTF_8)))))
 
 (defn- qstr [maybe-string]
   (if (string? maybe-string)
@@ -51,32 +61,26 @@
       [::error [:badfn func args]])
     [::error [:badfn func args]]))
 
-(defn crash-fn []
-  (throw (Exception. "exception message")))
-
-(defn sleep-fn [delay]
-  (Thread/sleep delay)
-  :ok)
-
 (defn- convert-nil [value]
-  (or value ::nil))
+  (if (nil? value)
+    ::nil
+    value))
+
+(p/proc-defn- watchdog-proc [channel]
+  (p/flag :trap-exit true)
+  (p/receive!
+    [:EXIT _ reason]
+    (when (http-kit/open? channel)
+      (log/debugf
+       "wsproc-watchdog %s message received, closing WebSocket, reason=%s"
+       (p/self) reason)
+      (transit-send channel [::exit reason])
+      (http-kit/close channel))))
 
 (p/proc-defn- wsproc [channel]
-  (let [watchdog
-        (p/spawn-link
-          (p/proc-fn []
-            (p/flag :trap-exit true)
-            (p/receive!
-              [:EXIT _ reason]
-              (when (http-kit/open? channel)
-                (log/debugf "wsproc-watchdog %s message received, closing WebSocket, reason=%s" (p/self) reason)
-                (transit-send channel [::exit reason])
-                (http-kit/close channel)))))]
-
+  (let [watchdog (p/spawn-link watchdog-proc [channel])]
     (log/debugf "wsproc %s :: watchdog process spawned, pid=%s" (p/self) watchdog)
-
     (transit-send channel [::self (p/self)])
-    
     (loop []
       (p/receive!
         ::terminate
@@ -97,7 +101,7 @@
         [::call func args corr]
         (do
           (log/debugf "wsproc %s :: call [%s] %s" (p/self) corr (format-call func args))
-          (match (-> (apply-sym func args) p/async?-value!)
+          (match (-> (apply-sym func args) p/await?!)
             [::error r]
             (p/exit r)
 
@@ -117,7 +121,7 @@
     (if (http-kit/websocket? channel)
       (let [wsproc-pid (p/spawn wsproc [channel])]
         (log/debugf "handler :: connection process spawned, pid=%s" wsproc-pid)
-        
+
         (http-kit/on-close channel
           (fn [event]
             (log/debugf "handler :: connection closed, pid=%s" wsproc-pid)
@@ -136,24 +140,13 @@
               (p/! wsproc-pid message)))))
       (do
         (log/warn "handler :: not a WebSocket connection")
-        (http-kit/send! channel
-          {:status 426 :headers {"upgrade" "websocket"}})))))
+        (http-kit/send!
+         channel {:status 426 :headers {"upgrade" "websocket"}})))))
 
-#_(p/trace t/crashed? println)
+;; -------------
+;; Demo
 
-#_(do @#'p/*processes)
-
-#_(doseq [[pid _] @@#'p/*processes]
-    (p/! pid ::terminate!))
-
-#_[otplike.process :as p]
-
-
-;;; demo code
-#_(defn start []
-    (http-kit/run-server #'http-kit-handler {:port 8086}))
+(defn- start []
+  (http-kit/run-server #'http-kit-handler {:port 8086}))
 
 #_(start)
-
-
-
