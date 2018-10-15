@@ -2,6 +2,7 @@
   (:require
    [clojure.core.match :as match :refer [match]]
    [otplike.process :as p]
+   [otplike.timer :as timer]
    [otplike.trace :as t]
    [taoensso.timbre :as log]
    [cognitect.transit :as transit]
@@ -79,9 +80,10 @@
 
 (p/proc-defn- wsproc [channel]
   (let [watchdog (p/spawn-link watchdog-proc [channel])]
+    (timer/send-interval 3000 ::ping)
     (log/debugf "wsproc %s :: watchdog process spawned, pid=%s" (p/self) watchdog)
     (transit-send channel [::self (p/self)])
-    (loop []
+    (loop [state {:ping-data 1}]
       (p/receive!
         ::terminate
         (do
@@ -96,7 +98,7 @@
             (p/exit r)
 
             _
-            (recur)))
+            (recur state)))
 
         [::call func args corr]
         (do
@@ -107,12 +109,21 @@
 
             result
             (transit-send channel [::return (convert-nil result) corr]))
-          (recur))
+          (recur state))
+
+        [::pong data]
+        ;; TODO check the data
+        (recur state)
+
+        ::ping
+        (let [data (-> state :ping-data inc)]
+          (transit-send channel [::ping data])
+          (recur (assoc state :ping-data data)))
 
         message
         (do
           (transit-send channel [::message (convert-nil message)])
-          (recur))))))
+          (recur state))))))
 
 
 (defn http-kit-handler [request]
