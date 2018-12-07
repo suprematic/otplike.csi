@@ -50,21 +50,12 @@
      (.getBytes string java.nio.charset.StandardCharsets/UTF_8)))))
 
 
-(defn- qstr [maybe-string]
-  (if (string? maybe-string)
-    (str \" maybe-string \")
-    maybe-string))
-
-
 (defn- format-call [func args]
-  (letfn [(qstr [s]
-            (if (string? s)
-              (str \" s \") s))]
-    (format "(%s %s)" func (->> args (map qstr) (interpose " ") (apply str)))))
+  (pr-str (concat [func] args)))
 
 
 (defn- apply-sym [func args]
-  (if-let [fn (some->> func resolve deref)]
+  (if-let [fn (some-> func resolve deref)]
     (if (fn? fn)
       [:ok (apply fn args)]
       [:error [:badfn func args]])
