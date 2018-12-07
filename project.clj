@@ -5,7 +5,7 @@
 
   :dependencies [[org.clojure/clojure "1.8.0"]
                  [org.clojure/core.match "0.3.0-alpha5"]
-                 [otplike "0.5.0-alpha-SNAPSHOT"]
+                 [otplike "0.5.0-alpha"]
                  [http-kit "2.3.0"]
                  [com.taoensso/timbre "4.10.0"]
                  [com.cognitect/transit-clj "0.8.309"]]
