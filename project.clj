@@ -11,6 +11,4 @@
                  [com.taoensso/timbre "4.10.0"]
                  [com.cognitect/transit-clj "0.8.313"]]
 
-  :source-paths  ["src"]
-
-  :plugins [[lein-ancient "0.6.10"]])
+  :source-paths  ["src"])
