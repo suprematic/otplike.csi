@@ -201,7 +201,7 @@
               (catch Exception ex
                 (log/error ex "handler :: cannot parse message data.")
                 (! ws-pid [::terminate (p/ex->reason ex)])))]
-        (log/trace "handler :: message: %s" message)
+        (log/tracef "handler :: message: %s" message)
         (match message
           [::pong _]
           (! ws-pid message)
