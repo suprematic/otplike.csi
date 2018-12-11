@@ -104,9 +104,14 @@
 
         [:ok ret]
         (let [ret (if (p/async? ret) ret (p/async-value ret))]
+          (log/tracef
+           "wsproc %s :: call [%s] ok, sending response"
+           (p/self) correlation-id)
           (p/with-async [result ret]
             (transit-send
              channel [::return (convert-nil result) correlation-id])
+            (log/tracef
+             "wsproc %s :: call [%s] response sent" (p/self) correlation-id)
             state))))
 
     message
