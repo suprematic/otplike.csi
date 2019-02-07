@@ -1,4 +1,4 @@
-(defproject otplike/otplike.csi "0.3.0-SNAPSHOT"
+(defproject otplike/otplike.csi "0.2.1"
   :description "CSI backend for otplike"
   :url "https://github.com/suprematic/otplike.csi"
   :license {:name "Eclipse Public License - v1.0"
