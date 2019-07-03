@@ -9,7 +9,7 @@
   (:import [otplike.process Pid TRef]))
 
 
-(def ^:private transit-write-handlers
+(def ^:private default-transit-write-handlers
   {Pid
    (transit/write-handler
     "pid" (fn [^Pid pid] {:id (.id pid)}))
@@ -18,7 +18,7 @@
     "otp-ref" (fn [^TRef tref] {:id (.id tref)}))})
 
 
-(def ^:private transit-read-handlers
+(def ^:private default-transit-read-handlers
   {"pid"
    (transit/read-handler
     (fn [{:keys [id]}]
@@ -29,25 +29,32 @@
       (TRef. id)))})
 
 
-(defn- transit-writer [stream]
-  (transit/writer stream :json {:handlers transit-write-handlers}))
+(defn- transit-writer [stream {:keys [transit-write-handlers]}]
+  (transit/writer
+    stream
+    :json
+    {:handlers (merge default-transit-write-handlers transit-write-handlers)}))
 
 
-(defn- transit-reader [stream]
-  (transit/reader stream :json {:handlers transit-read-handlers}))
+(defn- transit-reader [stream {:keys [transit-read-handlers]}]
+  (transit/reader
+    stream
+    :json
+    {:handlers (merge default-transit-read-handlers transit-read-handlers)}))
 
 
-(defn- transit-send [channel form]
+(defn- transit-send [channel form opts]
   (let [os (java.io.ByteArrayOutputStream. 4096)]
-    (-> os transit-writer (transit/write form))
+    (-> os (transit-writer opts) (transit/write form))
     (http-kit/send! channel (.toString os))))
 
 
-(defn- transit-read [string]
+(defn- transit-read [string opts]
   (transit/read
    (transit-reader
     (java.io.ByteArrayInputStream.
-     (.getBytes string java.nio.charset.StandardCharsets/UTF_8)))))
+     (.getBytes string java.nio.charset.StandardCharsets/UTF_8))
+    opts)))
 
 
 (defn- format-call [func args]
@@ -68,7 +75,7 @@
     value))
 
 
-(p/proc-defn- watchdog-proc [channel]
+(p/proc-defn- watchdog-proc [channel opts]
   (p/flag :trap-exit true)
   (p/receive!
     [:EXIT _ reason]
@@ -76,11 +83,11 @@
       (log/debugf
        "wsproc-watchdog %s message received, closing WebSocket, reason=%s"
        (p/self) reason)
-      (transit-send channel [::exit reason])
+      (transit-send channel [::exit reason] opts)
       (http-kit/close channel))))
 
 
-(defn- handle-message [state channel request]
+(defn- handle-message [state channel request opts]
   (match request
     [::cast func args]
     (do
@@ -109,22 +116,22 @@
            (p/self) correlation-id)
           (p/with-async [result ret]
             (transit-send
-             channel [::return (convert-nil result) correlation-id])
+             channel [::return (convert-nil result) correlation-id] opts)
             (log/tracef
              "wsproc %s :: call [%s] response sent" (p/self) correlation-id)
             state))))
 
     message
     (do
-      (transit-send channel [::message (convert-nil message)])
+      (transit-send channel [::message (convert-nil message)] opts)
       state)))
 
 
-(p/proc-defn- wsproc [channel start-promise]
-  (let [watchdog (p/spawn-link watchdog-proc [channel])]
+(p/proc-defn- wsproc [channel start-promise opts]
+  (let [watchdog (p/spawn-link watchdog-proc [channel opts])]
     (log/debugf
      "wsproc %s :: watchdog process spawned, pid=%s" (p/self) watchdog)
-    (transit-send channel [::self (p/self)])
+    (transit-send channel [::self (p/self)] opts)
     (deliver start-promise :started)
     (p/receive!
       ::go :ok
@@ -144,11 +151,11 @@
 
         ::ping
         (let [data (-> state :ping-data inc)]
-          (transit-send channel [::ping data])
+          (transit-send channel [::ping data] opts)
           (recur (assoc state :ping-data data)))
 
         message
-        (let [new-state (p/await?! (handle-message state channel message))]
+        (let [new-state (p/await?! (handle-message state channel message opts))]
           (recur new-state))))))
 
 
@@ -165,9 +172,9 @@
       [:next context])))
 
 
-(defn- handle-connect [channel request {:keys [on-connect] :as _opts}]
+(defn- handle-connect [channel request {:keys [on-connect] :as opts}]
   (let [start-promise (promise)
-        ws-pid (p/spawn wsproc [channel start-promise])]
+        ws-pid (p/spawn wsproc [channel start-promise opts])]
     (case (deref start-promise 10000 :timeout)
       :started :ok) ;; TODO handle timeout
     (log/debugf "handler :: connection process spawned, pid=%s" ws-pid)
@@ -197,7 +204,7 @@
     (fn handle-receive [data]
       (let [message
             (try
-              (transit-read data)
+              (transit-read data opts)
               (catch Exception ex
                 (log/error ex "handler :: cannot parse message data.")
                 (! ws-pid [::terminate (p/ex->reason ex)])))]
@@ -215,7 +222,7 @@
 
               [:reply result {:request [::call _func _args correlation-id]}]
               (transit-send
-               channel [::return (convert-nil result) correlation-id])
+               channel [::return (convert-nil result) correlation-id] opts)
 
               [:noreply context]
               :ok
@@ -226,6 +233,8 @@
 
 (defn http-kit-handler
   "The options are:
+    :transit-write-handlers - a map of transit write handlers
+    :transit-read-handlers - a map of transit read handlers
     :on-connect - a vector of \"connect\" interceptors
     :on-receive - a vector of \"receive\" interceptors"
   ([]
