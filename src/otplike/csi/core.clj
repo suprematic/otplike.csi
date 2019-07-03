@@ -9,24 +9,29 @@
   (:import [otplike.process Pid TRef]))
 
 
+;; ====================================================================
+;; Internal
+;; ====================================================================
+
+
 (def ^:private default-transit-write-handlers
   {Pid
    (transit/write-handler
-    "pid" (fn [^Pid pid] {:id (.id pid)}))
+     "pid" (fn [^Pid pid] {:id (.id pid)}))
    TRef
    (transit/write-handler
-    "otp-ref" (fn [^TRef tref] {:id (.id tref)}))})
+     "otp-ref" (fn [^TRef tref] {:id (.id tref)}))})
 
 
 (def ^:private default-transit-read-handlers
   {"pid"
    (transit/read-handler
-    (fn [{:keys [id]}]
-      (Pid. id)))
+     (fn [{:keys [id]}]
+       (Pid. id)))
    "otp-ref"
    (transit/read-handler
-    (fn [{:keys [id]}]
-      (TRef. id)))})
+     (fn [{:keys [id]}]
+       (TRef. id)))})
 
 
 (defn- transit-writer [stream {:keys [transit-write-handlers]}]
@@ -51,10 +56,10 @@
 
 (defn- transit-read [string opts]
   (transit/read
-   (transit-reader
-    (java.io.ByteArrayInputStream.
-     (.getBytes string java.nio.charset.StandardCharsets/UTF_8))
-    opts)))
+    (transit-reader
+      (java.io.ByteArrayInputStream.
+        (.getBytes string java.nio.charset.StandardCharsets/UTF_8))
+      opts)))
 
 
 (defn- format-call [func args]
@@ -81,8 +86,8 @@
     [:EXIT _ reason]
     (when (http-kit/open? channel)
       (log/debugf
-       "wsproc-watchdog %s message received, closing WebSocket, reason=%s"
-       (p/self) reason)
+        "wsproc-watchdog %s message received, closing WebSocket, reason=%s"
+        (p/self) reason)
       (transit-send channel [::exit reason] opts)
       (http-kit/close channel))))
 
@@ -103,8 +108,8 @@
     [::call func args correlation-id]
     (do
       (log/debugf
-       "wsproc %s :: call [%s] %s"
-       (p/self) correlation-id (format-call func args))
+        "wsproc %s :: call [%s] %s"
+        (p/self) correlation-id (format-call func args))
       (match (apply-sym func args)
         [:error reason]
         (p/exit reason)
@@ -112,13 +117,13 @@
         [:ok ret]
         (let [ret (if (p/async? ret) ret (p/async-value ret))]
           (log/tracef
-           "wsproc %s :: call [%s] ok, sending response"
-           (p/self) correlation-id)
+            "wsproc %s :: call [%s] ok, sending response"
+            (p/self) correlation-id)
           (p/with-async [result ret]
             (transit-send
-             channel [::return (convert-nil result) correlation-id] opts)
+              channel [::return (convert-nil result) correlation-id] opts)
             (log/tracef
-             "wsproc %s :: call [%s] response sent" (p/self) correlation-id)
+              "wsproc %s :: call [%s] response sent" (p/self) correlation-id)
             state))))
 
     message
@@ -130,7 +135,7 @@
 (p/proc-defn- wsproc [channel start-promise opts]
   (let [watchdog (p/spawn-link watchdog-proc [channel opts])]
     (log/debugf
-     "wsproc %s :: watchdog process spawned, pid=%s" (p/self) watchdog)
+      "wsproc %s :: watchdog process spawned, pid=%s" (p/self) watchdog)
     (transit-send channel [::self (p/self)] opts)
     (deliver start-promise :started)
     (p/receive!
@@ -206,7 +211,7 @@
             (try
               (transit-read data opts)
               (catch Exception ex
-                (log/error ex "handler :: cannot parse message data.")
+                (log/error ex "handler :: cannot parse message data")
                 (! ws-pid [::terminate (p/ex->reason ex)])))]
         (log/tracef "handler :: message: %s" message)
         (match message
@@ -222,13 +227,18 @@
 
               [:reply result {:request [::call _func _args correlation-id]}]
               (transit-send
-               channel [::return (convert-nil result) correlation-id] opts)
+                channel [::return (convert-nil result) correlation-id] opts)
 
               [:noreply context]
               :ok
 
               [:stop reason context]
               (! ws-pid [::terminate reason]))))))))
+
+
+;; ====================================================================
+;; API
+;; ====================================================================
 
 
 (defn http-kit-handler
@@ -241,7 +251,6 @@
    (http-kit-handler {}))
   ([opts]
    (fn [request]
-     (log/debug "handler :: request received")
      (http-kit/with-channel request channel
        (if (http-kit/websocket? channel)
          (match (handle-connect channel request opts)
@@ -257,7 +266,7 @@
          (do
            (log/warn "handler :: not a WebSocket connection")
            (http-kit/send!
-            channel {:status 426 :headers {"upgrade" "websocket"}})))))))
+             channel {:status 426 :headers {"upgrade" "websocket"}})))))))
 
 
 ;; -------------
