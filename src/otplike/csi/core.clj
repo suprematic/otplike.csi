@@ -225,6 +225,9 @@
 
 
 (defn http-kit-handler
+  "The options are:
+    :on-connect - a vector of \"connect\" interceptors
+    :on-receive - a vector of \"receive\" interceptors"
   ([]
    (http-kit-handler {}))
   ([opts]
