@@ -8,9 +8,9 @@
 ;; All inteceptor callbacks are called NOT in the context of the delegate
 ;; process.
 ;;
-;; Two kinds of interceptors:
-;;; receive interceptors - provide two callbacks: `:before` and `:after`
-;;; send interceptors - provide one (for now) callback - `:before`
+;; Kinds of interceptors:
+;;; connect interceptor - provides callbacks: `:after`
+;;; receive interceptor - provides callbacks: `:before`
 ;;
 ;; Returns:
 ;;; [:next context]
