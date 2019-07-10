@@ -85,8 +85,7 @@
     [:EXIT _ reason]
     (when (http-kit/open? channel)
       (log/debugf
-        "wsproc-watchdog %s message received, closing WebSocket, reason=%s"
-        (p/self) reason)
+        "wsproc-watchdog %s - closing WebSocket, reason=%s" (p/self) reason)
       (transit-send channel [::exit reason] opts)
       (http-kit/close channel))))
 
@@ -95,7 +94,6 @@
   (match request
     [::cast func args]
     (do
-      (log/debugf "wsproc %s :: cast %s" (p/self) (format-call func args))
       (match (apply-sym func args)
         [::error reason]
         (p/exit reason)
@@ -105,25 +103,16 @@
       state)
 
     [::call func args correlation-id]
-    (do
-      (log/debugf
-        "wsproc %s :: call [%s] %s"
-        (p/self) correlation-id (format-call func args))
-      (match (apply-sym func args)
-        [:error reason]
-        (p/exit reason)
+    (match (apply-sym func args)
+      [:error reason]
+      (p/exit reason)
 
-        [:ok ret]
-        (let [ret (if (p/async? ret) ret (p/async-value ret))]
-          (log/tracef
-            "wsproc %s :: call [%s] ok, sending response"
-            (p/self) correlation-id)
-          (p/with-async [result ret]
-            (transit-send
-              channel [::return (convert-nil result) correlation-id] opts)
-            (log/tracef
-              "wsproc %s :: call [%s] response sent" (p/self) correlation-id)
-            state))))
+      [:ok ret]
+      (let [ret (if (p/async? ret) ret (p/async-value ret))]
+        (p/with-async [result ret]
+          (transit-send
+            channel [::return (convert-nil result) correlation-id] opts)
+          state)))
 
     message
     (do
@@ -133,8 +122,6 @@
 
 (p/proc-defn- wsproc [channel start-promise opts]
   (let [watchdog (p/spawn-link watchdog-proc [channel opts])]
-    (log/debugf
-      "wsproc %s :: watchdog process spawned, pid=%s" (p/self) watchdog)
     (transit-send channel [::self (p/self)] opts)
     (deliver start-promise :started)
     (p/receive!
@@ -212,7 +199,6 @@
               (catch Exception ex
                 (log/error ex "handler :: cannot parse message data")
                 (! ws-pid [::terminate (p/ex->reason ex)])))]
-        (log/tracef "handler :: message: %s" message)
         (match message
           [::pong _]
           (! ws-pid message)
