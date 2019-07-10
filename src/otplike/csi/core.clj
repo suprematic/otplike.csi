@@ -1,8 +1,7 @@
 (ns otplike.csi.core
-  (:require [clojure.core.match :as match :refer [match]]
+  (:require [clojure.core.match :refer [match]]
             [otplike.process :as p :refer [!]]
             [otplike.timer :as timer]
-            [otplike.trace :as t]
             [taoensso.timbre :as log]
             [cognitect.transit :as transit]
             [org.httpkit.server :as http-kit])
