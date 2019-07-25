@@ -203,6 +203,9 @@
                 (log/error ex "handler :: cannot parse message data")
                 (! ws-pid [::terminate (p/ex->reason ex)])))]
         (match message
+          [::ping data]
+          (transit-send channel [::pong data] opts)
+
           [::pong _]
           (! ws-pid message)
 
