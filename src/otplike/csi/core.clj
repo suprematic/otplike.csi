@@ -131,6 +131,9 @@
     (timer/send-interval 3000 ::ping)
     (loop [state {:ping-data 1}]
       (p/receive!
+        ::connection-closed
+        (log/debugf "wsproc %s :: exiting (connection closed)" (p/self))
+
         [::terminate reason]
         (do
           (log/debugf "wsproc %s :: 'terminate' message received" (p/self))
@@ -187,7 +190,7 @@
 (defn- handle-close-fn [_channel _opts ws-pid]
   (fn handle-close [_event]
     (log/debugf "handler :: connection closed, pid=%s" ws-pid)
-    (! ws-pid [::terminate :connection-closed])))
+    (! ws-pid ::connection-closed)))
 
 
 (defn- handle-receive-fn [channel {:keys [on-receive] :as opts} ws-pid]
