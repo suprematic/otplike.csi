@@ -13,6 +13,13 @@
 ;; ====================================================================
 
 
+(def ^:private default-ping-timeout-ms 15000)
+
+
+(def ^:private default-pongs-missing-allowed 2)
+
+
+
 (def ^:private default-transit-write-handlers
   {Pid
    (transit/write-handler
@@ -121,15 +128,17 @@
 
 
 (p/proc-defn- wsproc [channel start-promise opts]
-  (let [watchdog (p/spawn-link watchdog-proc [channel opts])]
+  (let [watchdog (p/spawn-link watchdog-proc [channel opts])
+        ping-timeout-ms (or (:ping-timeout-ms opts) default-ping-timeout-ms)
+        pongs-missing-allowed
+        (or (:pongs-missing-allowed opts) default-pongs-missing-allowed)]
     (transit-send channel [::self (p/self)] opts)
     (deliver start-promise :started)
     (p/receive!
       ::go :ok
       (after 60000
         (p/exit :start-timeout)))
-    (timer/send-interval 3000 ::ping)
-    (loop [state {:ping-data 1}]
+    (loop [state {:ping-counter 0 :pongs-waiting 0}]
       (p/receive!
         ::connection-closed
         (log/debugf "wsproc %s :: exiting (connection closed)" (p/self))
@@ -139,18 +148,30 @@
           (log/debugf "wsproc %s :: 'terminate' message received" (p/self))
           (p/exit reason))
 
-        [::pong data]
-        ;; TODO check the data, define how much pongs can be missing
-        (recur state)
+        [::ping data]
+        (do
+          (transit-send channel [::pong data] opts)
+          (recur state))
 
-        ::ping
-        (let [data (-> state :ping-data inc)]
-          (transit-send channel [::ping data] opts)
-          (recur (assoc state :ping-data data)))
+        [::pong _]
+        (recur (assoc state :pongs-waiting 0))
 
         message
         (let [new-state (p/await?! (handle-message state channel message opts))]
-          (recur new-state))))))
+          (recur new-state))
+
+        (after ping-timeout-ms
+          (let [pongs-waiting (:pongs-waiting state)]
+            (if (> pongs-waiting pongs-missing-allowed)
+              (do
+                (log/error "wsproc %s :: exiting, pongs missing" (p/self))
+                (p/exit [:pongs-missing pongs-waiting]))
+              (let [ping-counter (:ping-counter state)]
+                (transit-send channel [::ping ping-counter] opts)
+                (recur
+                  (-> state
+                    (update :ping-counter inc)
+                    (update :pongs-waiting inc)))))))))))
 
 
 (defn- context-> [context & interceptor-fns]
@@ -203,8 +224,8 @@
                 (log/error ex "handler :: cannot parse message data")
                 (! ws-pid [::terminate (p/ex->reason ex)])))]
         (match message
-          [::ping data]
-          (transit-send channel [::pong data] opts)
+          [::ping _]
+          (! ws-pid message)
 
           [::pong _]
           (! ws-pid message)
