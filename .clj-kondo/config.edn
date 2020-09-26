@@ -1,0 +1,6 @@
+{:linters
+ {:unsorted-required-namespaces {:level :warning}}
+
+ :lint-as
+ {otplike.process/proc-defn- clojure.core/defn-
+  otplike.process/proc-defn clojure.core/defn}}

@@ -1,2 +1,3 @@
-target/
-.nrepl-port
+/.clj-kondo/.cache/
+/target/
+/.nrepl-port
