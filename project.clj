@@ -9,6 +9,4 @@
                  [otplike "0.5.0-alpha"]
                  [http-kit "2.3.0"]
                  [com.taoensso/timbre "4.10.0"]
-                 [com.cognitect/transit-clj "0.8.313"]]
-
-  :source-paths  ["src"])
+                 [com.cognitect/transit-clj "0.8.313"]])
