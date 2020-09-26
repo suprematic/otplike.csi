@@ -1,5 +1,7 @@
 /.clj-kondo/.cache/
 /target/
 /.nrepl-port
+/pom.xml
+/pom.xml.asc
 
 /.projectile
